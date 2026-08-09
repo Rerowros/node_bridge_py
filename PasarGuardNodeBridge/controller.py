@@ -339,10 +339,7 @@ class Controller:
         node_version: str = "",
         core_version: str = "",
     ) -> None:
-        heartbeat = self._lifecycle_heartbeat_tasks.pop(lease.token, None)
-        if heartbeat is not None:
-            heartbeat.cancel()
-            await heartbeat
+        await self._stop_lifecycle_heartbeat(lease)
 
         if observed is None:
             await self._lifecycle_coordinator.release(lease)
@@ -358,6 +355,15 @@ class Controller:
             core_version=core_version,
         )
         await self._lifecycle_coordinator.release(lease, state)
+
+    async def _stop_lifecycle_heartbeat(self, lease: LifecycleLease) -> None:
+        heartbeat = self._lifecycle_heartbeat_tasks.pop(lease.token, None)
+        if heartbeat is not None:
+            heartbeat.cancel()
+            try:
+                await heartbeat
+            except asyncio.CancelledError:
+                pass
 
     async def get_lifecycle_state(self) -> NodeLifecycleState | None:
         return await self._lifecycle_coordinator.get_state(self.node_id)

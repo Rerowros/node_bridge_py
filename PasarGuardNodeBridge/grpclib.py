@@ -200,19 +200,14 @@ class Node(PasarGuardNode):
                 async with self._node_lock:
                     await self.disconnect()
 
-                    try:
-                        await self._handle_grpc_request(
-                            method=self._client.Stop,
-                            request=service.Empty(),
-                            timeout=timeout,
-                        )
-                    except Exception:
-                        pass
-                    await self._release_lifecycle_lease(
-                        lease, LifecycleStatus.STOPPED, desired=LifecycleStatus.STOPPED
+                    await self._handle_grpc_request(
+                        method=self._client.Stop,
+                        request=service.Empty(),
+                        timeout=timeout,
                     )
+                    await self._release_lifecycle_lease(lease, LifecycleStatus.STOPPED, desired=LifecycleStatus.STOPPED)
             except BaseException:
-                await self._release_lifecycle_lease(lease, LifecycleStatus.BROKEN, desired=LifecycleStatus.STOPPED)
+                await self._stop_lifecycle_heartbeat(lease)
                 raise
         finally:
             await self._json_client.close()
