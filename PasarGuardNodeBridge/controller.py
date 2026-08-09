@@ -364,6 +364,8 @@ class Controller:
                 await heartbeat
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                self.logger.exception("[%s] Lifecycle heartbeat failed during cleanup", self.name)
 
     async def get_lifecycle_state(self) -> NodeLifecycleState | None:
         return await self._lifecycle_coordinator.get_state(self.node_id)

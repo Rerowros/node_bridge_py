@@ -222,9 +222,8 @@ class Node(PasarGuardNode):
             lease = await self._acquire_lifecycle_lease(LifecycleOperation.STOP)
             try:
                 async with self._node_lock:
-                    await self.disconnect()
-
                     await self._make_request(method="PUT", endpoint="stop", timeout=timeout)
+                    await self.disconnect()
                     await self._release_lifecycle_lease(lease, LifecycleStatus.STOPPED, desired=LifecycleStatus.STOPPED)
             except BaseException:
                 await self._stop_lifecycle_heartbeat(lease)
