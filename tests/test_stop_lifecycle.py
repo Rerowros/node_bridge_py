@@ -74,14 +74,26 @@ class StopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         coordinator = InMemoryNodeLifecycleCoordinator()
         node = RestNode.__new__(RestNode)
         self._configure_node(node, coordinator)
+        node._client = SimpleNamespace(close=AsyncMock())
+        node._make_request = AsyncMock(side_effect=NodeAPIError(503, "REST stop failed"))
+
+        async def heartbeat_that_fails_during_cleanup():
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError as exc:
+                raise RuntimeError("heartbeat failed") from exc
+
         lease = await coordinator.try_acquire(node.node_id, node.worker_id, LifecycleOperation.STOP, 30)
         self.assertIsNotNone(lease)
-        heartbeat = asyncio.get_running_loop().create_future()
-        heartbeat.set_exception(RuntimeError("heartbeat failed"))
-        node._lifecycle_heartbeat_tasks[lease.token] = heartbeat
+        node._acquire_lifecycle_lease = AsyncMock(return_value=lease)
+        node._lifecycle_heartbeat_tasks[lease.token] = asyncio.create_task(heartbeat_that_fails_during_cleanup())
+        await asyncio.sleep(0)
 
-        await node._stop_lifecycle_heartbeat(lease)
+        with self.assertRaises(NodeAPIError) as error:
+            await node.stop()
 
+        self.assertEqual(error.exception.code, 503)
+        self.assertEqual(error.exception.detail, "REST stop failed")
         node.logger.exception.assert_called_once()
 
 
