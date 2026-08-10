@@ -12,10 +12,10 @@ Features:
 - Extensible with custom metadata via the `extra` argument
 
 Author: PasarGuard
-Version: 0.9.1
+Version: 0.10.0
 """
 
-__version__ = "0.9.1"
+__version__ = "0.10.0"
 __author__ = "PasarGuard"
 
 
@@ -31,12 +31,20 @@ from PasarGuardNodeBridge.storage import (
     InMemoryNodeRegistry,
     InMemoryUserSyncStore,
     LifecycleLease,
+    LifecycleLeaseLostError,
     LifecycleOperation,
     LifecycleStatus,
     NodeConfig,
     NodeLifecycleCoordinatorProtocol,
     NodeLifecycleState,
     NodeRegistryProtocol,
+    RevocationAwareUserSyncStoreProtocol,
+    StartupUserSyncLease,
+    UserRevocationConflictError,
+    UserRevocationResult,
+    UserSyncLease,
+    UserSyncLeaseLostError,
+    UserSyncStoreFullError,
     UserSyncStoreProtocol,
 )
 from PasarGuardNodeBridge.utils import create_proxy, create_user
@@ -53,6 +61,8 @@ def create_node(
     port: int,
     server_ca: str,
     api_key: str,
+    api_port: int | None = None,
+    max_message_size: int | None = None,
     **kwargs,
 ) -> PasarGuardNode:
     """
@@ -67,6 +77,10 @@ def create_node(
         port (int): Port number used to connect to the node.
         server_ca (str): The server's SSL certificate as a string (PEM format).
         api_key (str): API key used for authentication with the node.
+        api_port (int | None): Port for the maintenance JSON API. Defaults to
+            ``port`` for backwards compatibility with shared-port deployments.
+        max_message_size (int | None): Maximum gRPC message size. Ignored for
+            REST nodes.
         **kwargs: Additional optional arguments:
             - name (str): Node instance name for logging. Defaults to "default".
             - extra (dict): Optional dictionary to pass custom metadata or configuration. Defaults to {}.
@@ -112,12 +126,16 @@ def create_node(
           HTTP CONNECT and SOCKS proxy schemes.
     """
 
+    resolved_api_port = port if api_port is None else api_port
+
     if connection is NodeType.grpc:
         return GrpcNode(
             address=address,
             port=port,
+            api_port=resolved_api_port,
             server_ca=server_ca,
             api_key=api_key,
+            max_message_size=max_message_size,
             **kwargs,
         )
 
@@ -125,6 +143,7 @@ def create_node(
         return RestNode(
             address=address,
             port=port,
+            api_port=resolved_api_port,
             server_ca=server_ca,
             api_key=api_key,
             **kwargs,
@@ -161,6 +180,7 @@ __all__ = [
     "InMemoryNodeRegistry",
     "InMemoryUserSyncStore",
     "LifecycleLease",
+    "LifecycleLeaseLostError",
     "LifecycleOperation",
     "LifecycleStatus",
     "NodeAPIError",
@@ -170,6 +190,13 @@ __all__ = [
     "NodeRegistryProtocol",
     "NodeType",
     "PasarGuardNode",
+    "RevocationAwareUserSyncStoreProtocol",
+    "StartupUserSyncLease",
+    "UserRevocationConflictError",
+    "UserRevocationResult",
+    "UserSyncLease",
+    "UserSyncLeaseLostError",
+    "UserSyncStoreFullError",
     "UserSyncStoreProtocol",
     "create_node",
     "create_node_from_config",
