@@ -276,6 +276,12 @@ request can no longer complete; a status probe alone is not such a guarantee. Re
 lease. Applications must not automatically reconcile a timeout and launch a competing lifecycle operation, because the
 Node management API does not yet carry a server-enforced lifecycle fencing token.
 
+The built-in lifecycle coordinator is shared only by controllers in the same Python process. Deployments with more than
+one Panel/Bridge process must inject the same durable shared adapter (for example, backed by Redis or a transactional
+database) into every controller. Adapter failures are exposed by lifecycle APIs as `NodeAPIError` with code `503`.
+`NodeLifecycleState.updated_at` is a Unix wall-clock timestamp; adapters should use a monotonic clock separately for lease
+expiry calculations and must not persist process-local monotonic values as public state.
+
 Node connection configs can also be stored through a registry protocol:
 
 ```python

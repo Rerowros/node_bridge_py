@@ -756,9 +756,12 @@ class Controller:
             pass
 
     async def _acquire_lifecycle_lease(self, operation: LifecycleOperation) -> LifecycleLease:
-        lease = await self._lifecycle_coordinator.try_acquire(
-            self.node_id, self.worker_id, operation, self._lifecycle_lease_seconds
-        )
+        try:
+            lease = await self._lifecycle_coordinator.try_acquire(
+                self.node_id, self.worker_id, operation, self._lifecycle_lease_seconds
+            )
+        except Exception as exc:
+            raise NodeAPIError(503, "Lifecycle coordinator acquire failed") from exc
         if lease is None:
             raise NodeAPIError(409, f"Node lifecycle operation already in progress for {self.node_id}")
         self._lifecycle_heartbeat_tasks[lease.token] = asyncio.create_task(self._heartbeat_lifecycle_lease(lease))
@@ -786,31 +789,44 @@ class Controller:
             except BaseException as exc:  # preserve the unknown remote outcome
                 heartbeat_error = exc
 
+        try:
+            if observed is None:
+                cleanup_cancellation = await self._await_cleanup_despite_cancellation(
+                    self._lifecycle_coordinator.release(lease)
+                )
+            else:
+                state = NodeLifecycleState(
+                    desired=desired or observed,
+                    observed=observed,
+                    epoch=lease.epoch,
+                    operation=lease.operation,
+                    owner=lease.worker_id,
+                    node_version=node_version,
+                    core_version=core_version,
+                )
+                cleanup_cancellation = await self._await_cleanup_despite_cancellation(
+                    self._lifecycle_coordinator.release(lease, state)
+                )
+        except Exception as exc:
+            raise NodeAPIError(503, "Lifecycle coordinator release failed") from exc
+
         if heartbeat_error is not None:
-            raise heartbeat_error
+            # The transport result is already known and the coordinator has
+            # recorded it. A late heartbeat failure must not turn that known
+            # success into a retained poison lease.
+            self.logger.error(
+                "[%s] Lifecycle heartbeat failed after the remote outcome was recorded | Error: %s - %s",
+                self.name,
+                type(heartbeat_error).__name__,
+                heartbeat_error,
+            )
 
         if observed is None:
-            cleanup_cancellation = await self._await_cleanup_despite_cancellation(
-                self._lifecycle_coordinator.release(lease)
-            )
             if caller_cancellation is None:
                 caller_cancellation = cleanup_cancellation
             if caller_cancellation is not None:
                 raise caller_cancellation
             return
-
-        state = NodeLifecycleState(
-            desired=desired or observed,
-            observed=observed,
-            epoch=lease.epoch,
-            operation=lease.operation,
-            owner=lease.worker_id,
-            node_version=node_version,
-            core_version=core_version,
-        )
-        cleanup_cancellation = await self._await_cleanup_despite_cancellation(
-            self._lifecycle_coordinator.release(lease, state)
-        )
         if caller_cancellation is None:
             caller_cancellation = cleanup_cancellation
         if caller_cancellation is not None:
@@ -834,7 +850,10 @@ class Controller:
             self.logger.exception("[%s] Lifecycle heartbeat failed during cleanup", self.name)
 
     async def get_lifecycle_state(self) -> NodeLifecycleState | None:
-        return await self._lifecycle_coordinator.get_state(self.node_id)
+        try:
+            return await self._lifecycle_coordinator.get_state(self.node_id)
+        except Exception as exc:
+            raise NodeAPIError(503, "Lifecycle coordinator state read failed") from exc
 
     async def reconcile_lifecycle(self, observed: LifecycleStatus) -> None:
         """Acknowledge an inspected remote state after an expired operation.
@@ -843,11 +862,18 @@ class Controller:
         is an unknown remote effect and must not be replaced by a new operation
         until a caller has probed the node and supplied the observed state.
         """
-        if not await self._lifecycle_coordinator.reconcile(self.node_id, observed):
+        try:
+            reconciled = await self._lifecycle_coordinator.reconcile(self.node_id, observed)
+        except Exception as exc:
+            raise NodeAPIError(503, "Lifecycle coordinator reconciliation failed") from exc
+        if not reconciled:
             raise NodeAPIError(409, f"Node lifecycle operation is still active for {self.node_id}")
 
     async def update_observed_lifecycle(self, observed: LifecycleStatus, expected_epoch: int | None = None) -> None:
-        await self._lifecycle_coordinator.update_observed(self.node_id, observed, expected_epoch)
+        try:
+            await self._lifecycle_coordinator.update_observed(self.node_id, observed, expected_epoch)
+        except Exception as exc:
+            raise NodeAPIError(503, "Lifecycle coordinator state update failed") from exc
 
     async def connect(self, node_version: str, core_version: str, tasks: list | None = None):
         # Validate versions are not empty

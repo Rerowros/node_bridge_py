@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -176,6 +177,17 @@ class InMemoryNodeRegistryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class InMemoryNodeLifecycleCoordinatorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_state_uses_wall_clock_timestamp(self):
+        coordinator = InMemoryNodeLifecycleCoordinator()
+        before = time.time()
+
+        lease = await coordinator.try_acquire("node-1", "worker-1", LifecycleOperation.START, 30)
+        state = await coordinator.get_state("node-1")
+
+        self.assertIsNotNone(lease)
+        self.assertGreaterEqual(state.updated_at, before)
+        self.assertLessEqual(state.updated_at, time.time())
+
     async def test_lifecycle_lease_is_exclusive(self):
         coordinator = InMemoryNodeLifecycleCoordinator()
 

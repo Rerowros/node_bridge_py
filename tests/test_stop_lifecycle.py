@@ -9,7 +9,6 @@ from PasarGuardNodeBridge.rest import Node as RestNode
 from PasarGuardNodeBridge.storage import (
     InMemoryNodeLifecycleCoordinator,
     InMemoryUserSyncStore,
-    LifecycleLeaseLostError,
     LifecycleOperation,
     LifecycleStatus,
 )
@@ -195,7 +194,7 @@ class StopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         competing = await coordinator.try_acquire("node-1", "worker-2", LifecycleOperation.STOP, 30)
         self.assertIsNone(competing)
 
-    async def test_successful_start_with_lost_heartbeat_keeps_poison(self):
+    async def test_successful_start_with_lost_heartbeat_releases_known_outcome(self):
         class LostHeartbeatCoordinator(InMemoryNodeLifecycleCoordinator):
             async def heartbeat(self, _lease):
                 return False
@@ -225,16 +224,48 @@ class StopLifecycleTests(unittest.IsolatedAsyncioTestCase):
         node._make_request = successful_start
         node.connect = AsyncMock()
 
-        with self.assertRaises(LifecycleLeaseLostError):
-            await node.start(
-                config="{}",
-                backend_type=0,
-                users=[],
-                reconcile_user_sync=True,
-            )
+        response = await node.start(
+            config="{}",
+            backend_type=0,
+            users=[],
+            reconcile_user_sync=True,
+        )
 
+        self.assertTrue(response.started)
+        state = await coordinator.get_state("node-1")
+        self.assertEqual(state.observed, LifecycleStatus.HEALTHY)
         competing = await coordinator.try_acquire("node-1", "worker-2", LifecycleOperation.STOP, 30)
+        self.assertIsNotNone(competing)
+        node.logger.error.assert_called_once()
+
+    async def test_hard_reset_timeout_retains_unknown_lifecycle_lease(self):
+        coordinator = InMemoryNodeLifecycleCoordinator()
+        node = RestNode.__new__(RestNode)
+        self._configure_node(node, coordinator)
+        node.check_connectivity = AsyncMock(return_value=True)
+        node._make_json_request = AsyncMock(side_effect=TimeoutError)
+
+        with self.assertRaises(TimeoutError):
+            await node.hard_reset()
+
+        competing = await coordinator.try_acquire("node-1", "worker-2", LifecycleOperation.START, 30)
         self.assertIsNone(competing)
+        node.disconnect.assert_not_awaited()
+
+    async def test_lifecycle_adapter_errors_are_translated(self):
+        class FailingCoordinator(InMemoryNodeLifecycleCoordinator):
+            async def try_acquire(self, *_args, **_kwargs):
+                raise RuntimeError("shared store unavailable")
+
+        node = RestNode.__new__(RestNode)
+        self._configure_node(node, FailingCoordinator())
+
+        with self.assertRaises(NodeAPIError) as error:
+            await node._acquire_lifecycle_lease(LifecycleOperation.START)
+
+        self.assertEqual(error.exception.code, 503)
+        self.assertEqual(error.exception.detail, "Lifecycle coordinator acquire failed")
+        self.assertNotIn("shared store unavailable", error.exception.detail)
 
 
 if __name__ == "__main__":

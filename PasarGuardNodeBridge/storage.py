@@ -804,6 +804,7 @@ class InMemoryNodeLifecycleCoordinator:
         self, node_id: str, worker_id: str, operation: LifecycleOperation, lease_seconds: float
     ) -> LifecycleLease | None:
         now = time.monotonic()
+        wall_time = time.time()
         async with self._lock:
             current = self._leases.get(node_id)
             if current is not None:
@@ -812,7 +813,7 @@ class InMemoryNodeLifecycleCoordinator:
                 # lifecycle effect would violate operation ordering.
                 return None
 
-            state = self._states.get(node_id) or NodeLifecycleState(updated_at=now)
+            state = self._states.get(node_id) or NodeLifecycleState(updated_at=wall_time)
             epoch = state.epoch + 1
             lease = LifecycleLease(
                 node_id=node_id,
@@ -825,7 +826,7 @@ class InMemoryNodeLifecycleCoordinator:
             state.epoch = epoch
             state.operation = operation
             state.owner = worker_id
-            state.updated_at = now
+            state.updated_at = wall_time
             if operation is LifecycleOperation.START:
                 state.desired = LifecycleStatus.HEALTHY
                 state.observed = LifecycleStatus.STARTING
@@ -837,7 +838,7 @@ class InMemoryNodeLifecycleCoordinator:
             return lease
 
     async def release(self, lease: LifecycleLease, state_update: NodeLifecycleState | None = None) -> None:
-        now = time.monotonic()
+        wall_time = time.time()
         async with self._lock:
             current = self._leases.get(lease.node_id)
             if current is None or current[0].token != lease.token:
@@ -848,7 +849,7 @@ class InMemoryNodeLifecycleCoordinator:
                 state.epoch = lease.epoch
             state.operation = None
             state.owner = None
-            state.updated_at = now
+            state.updated_at = wall_time
             self._states[lease.node_id] = state
 
     async def heartbeat(self, lease: LifecycleLease) -> bool:
@@ -863,6 +864,7 @@ class InMemoryNodeLifecycleCoordinator:
     async def reconcile(self, node_id: str, observed: LifecycleStatus) -> bool:
         """Clear only an expired lease after an authoritative state probe."""
         now = time.monotonic()
+        wall_time = time.time()
         async with self._lock:
             current = self._leases.get(node_id)
             if current is not None and current[1] > now:
@@ -879,7 +881,7 @@ class InMemoryNodeLifecycleCoordinator:
             state.observed = observed
             state.operation = None
             state.owner = None
-            state.updated_at = now
+            state.updated_at = wall_time
             self._states[node_id] = state
             return True
 
@@ -888,13 +890,13 @@ class InMemoryNodeLifecycleCoordinator:
             return self._states.get(node_id)
 
     async def update_observed(self, node_id: str, observed: LifecycleStatus, expected_epoch: int | None = None) -> None:
-        now = time.monotonic()
+        wall_time = time.time()
         async with self._lock:
-            state = self._states.get(node_id) or NodeLifecycleState(updated_at=now)
+            state = self._states.get(node_id) or NodeLifecycleState(updated_at=wall_time)
             if expected_epoch is not None and state.epoch != expected_epoch:
                 return
             state.observed = observed
-            state.updated_at = now
+            state.updated_at = wall_time
             self._states[node_id] = state
 
 
