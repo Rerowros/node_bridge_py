@@ -54,6 +54,7 @@ def create_node(
     server_ca: str,
     api_key: str,
     api_port: int,
+    max_message_size: int | None = None,
     **kwargs,
 ) -> PasarGuardNode:
     """
@@ -125,6 +126,7 @@ def create_node(
             api_port=api_port,
             server_ca=server_ca,
             api_key=api_key,
+            max_message_size=max_message_size,
             **kwargs,
         )
 

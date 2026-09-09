@@ -1,5 +1,6 @@
 import inspect
 import unittest
+from unittest.mock import patch
 
 from PasarGuardNodeBridge import NodeAPIError, NodeType, create_node
 from PasarGuardNodeBridge import grpclib as grpclib_backend
@@ -58,6 +59,43 @@ class CreateNodeSignatureTest(unittest.TestCase):
         self.assertTrue(
             accepts_kwargs or not unsupported,
             f"NodeConfig fields not accepted by create_node(): {sorted(unsupported)}",
+        )
+
+    def test_grpc_forwards_distinct_service_port_and_message_limit(self):
+        with patch("PasarGuardNodeBridge.GrpcNode") as grpc_node:
+            create_node(
+                connection=NodeType.grpc,
+                **DOCUMENTED_CALL,
+                max_message_size=8 * 1024 * 1024,
+                name="test-grpc",
+            )
+
+        grpc_node.assert_called_once_with(
+            address="127.0.0.1",
+            port=2096,
+            api_port=2097,
+            server_ca=DOCUMENTED_CALL["server_ca"],
+            api_key=DOCUMENTED_CALL["api_key"],
+            max_message_size=8 * 1024 * 1024,
+            name="test-grpc",
+        )
+
+    def test_rest_does_not_receive_grpc_message_limit(self):
+        with patch("PasarGuardNodeBridge.RestNode") as rest_node:
+            create_node(
+                connection=NodeType.rest,
+                **DOCUMENTED_CALL,
+                max_message_size=8 * 1024 * 1024,
+                name="test-rest",
+            )
+
+        rest_node.assert_called_once_with(
+            address="127.0.0.1",
+            port=2096,
+            api_port=2097,
+            server_ca=DOCUMENTED_CALL["server_ca"],
+            api_key=DOCUMENTED_CALL["api_key"],
+            name="test-rest",
         )
 
 
