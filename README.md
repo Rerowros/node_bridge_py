@@ -21,8 +21,7 @@ pip install pasarguard-node-bridge
 - Python `>=3.12`
 - A reachable PasarGuard node
 - Node service port (`port`) for gRPC or protobuf-REST
-- Node JSON API port (`api_port`) for maintenance endpoints. When omitted, the
-  public factory uses the service `port` for backwards compatibility.
+- Node JSON API port (`api_port`) for maintenance endpoints
 - Server CA certificate content (PEM string)
 - API key (UUID string)
 
@@ -56,7 +55,7 @@ node = Bridge.create_node(
 - `connection`: `Bridge.NodeType.grpc` or `Bridge.NodeType.rest`
 - `address`: node host/IP
 - `port`: node service port
-- `api_port`: optional node REST JSON API port; defaults to `port`
+- `api_port`: node REST JSON API port
 - `server_ca`: PEM certificate content as string
 - `api_key`: UUID string
 - `name`: optional logger name
